@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Đo lường C-V</title>
+    <!-- Nhúng thư viện vẽ đồ thị Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-purple: #a855f7;
+            --accent-ai: #10b981;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            box-sizing: border-box;
+            overflow-x: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        h1 { margin: 0; font-size: 24px; color: var(--accent-blue); }
+        .status { color: #10b981; font-weight: bold; margin-top: 5px; }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            flex: 1;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel h2 {
+            margin-top: 0;
+            font-size: 18px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .chart-container {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            min-height: 300px;
+        }
+
+        .live-data {
+            display: flex;
+            justify-content: space-around;
+            background: #0b1120;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .data-box { text-align: center; }
+        .data-box span { display: block; font-size: 12px; color: var(--text-muted); }
+        .data-box strong { font-size: 24px; color: #fff; }
+
+        /* AI Feature Styles */
+        .ai-controls {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .btn-ai {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-ai:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-ai:active {
+            transform: translateY(0);
+        }
+
+        .ai-panel {
+            margin-top: 20px;
+            background: #1e293b;
+            border-left: 4px solid var(--accent-ai);
+            display: none; /* Ẩn mặc định */
+        }
+
+        .ai-panel h2 {
+            color: var(--accent-ai);
+            text-align: left;
+            margin-bottom: 15px;
+        }
+
+        .ai-content {
+            font-size: 15px;
+            line-height: 1.6;
+            color: #cbd5e1;
+            white-space: pre-wrap; /* Giữ định dạng dòng từ AI */
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>HỆ THỐNG PHÂN TÍCH ĐẶC TUYẾN BÁN DẪN</h1>
+        <div class="status" id="status-text">Đang chờ dữ liệu từ Python API...</div>
+    </div>
+
+    <div class="dashboard">
+        <!-- Panel 1: Đồ thị C-V -->
+        <div class="panel">
+            <h2>Đặc tuyến C-V (Điện dung - Điện áp)</h2>
+            <div class="chart-container">
+                <canvas id="cvChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Panel 2: Đồ thị Mott-Schottky -->
+        <div class="panel">
+            <h2>Đặc tuyến Mott-Schottky (1/C²)</h2>
+            <div class="chart-container">
+                <canvas id="msChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hiển thị số liệu Real-time -->
+    <div class="live-data">
+        <div class="data-box">
+            <span>V_bias Hiện tại</span>
+            <strong id="val-vbias" style="color: #ef4444;">0.00 V</strong>
+        </div>
+        <div class="data-box">
+            <span>Điện dung (C)</span>
+            <strong id="val-c" style="color: var(--accent-blue);">0.000 pF</strong>
+        </div>
+        <div class="data-box">
+            <span>Mott-Schottky (1/C²)</span>
+            <strong id="val-invc2" style="color: var(--accent-purple);">0.0000</strong>
+        </div>
+    </div>
+
+    <!-- Điều khiển AI -->
+    <div class="ai-controls">
+        <button class="btn-ai" id="btn-analyze" onclick="analyzeWithGemini()">
+            ✨ Phân Tích Dữ Liệu bằng AI ✨
+            <div class="loading-spinner" id="ai-loader"></div>
+        </button>
+    </div>
+
+    <!-- Kết quả phân tích AI -->
+    <div class="panel ai-panel" id="ai-result-panel">
+        <h2>✨ Đánh Giá Chuyên Gia (Gemini AI)</h2>
+        <div class="ai-content" id="ai-response-content"></div>
+    </div>
+
+    <script>
+        // --- KHỞI TẠO ĐỒ THỊ BẰNG CHART.JS ---
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 300 }, // Hiệu ứng vẽ mượt
+            scales: {
+                x: { 
+                    type: 'linear', 
+                    title: { display: true, text: 'Điện áp V_bias (V)', color: '#94a3b8' },
+                    grid: { color: '#334155' },
+                    ticks: { color: '#94a3b8' }
+                },
+                y: { 
+                    grid: { color: '#334155' },
+                    ticks: { color: '#94a3b8' }
+                }
+            },
+            plugins: { legend: { display: false } }
+        };
+
+        // 1. Chart C-V
+        const ctxCV = document.getElementById('cvChart').getContext('2d');
+        const cvChart = new Chart(ctxCV, {
+            type: 'line',
+            data: { datasets: [{
+                label: 'C (pF)',
+                data: [],
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                borderWidth: 2,
+                pointBackgroundColor: '#ef4444',
+                pointRadius: 4,
+                fill: true,
+                tension: 0.3 // Làm cong đường vẽ
+            }]},
+            options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'Điện dung (pF)', color: '#3b82f6' }}}}
+        });
+
+        // 2. Chart Mott-Schottky
+        const ctxMS = document.getElementById('msChart').getContext('2d');
+        const msChart = new Chart(ctxMS, {
+            type: 'line',
+            data: { datasets: [{
+                label: '1/C²',
+                data: [],
+                borderColor: '#a855f7',
+                borderWidth: 2,
+                pointBackgroundColor: '#a855f7',
+                pointStyle: 'rect',
+                pointRadius: 5,
+                tension: 0
+            }]},
+            options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: '1/C² (pF⁻²)', color: '#a855f7' }}}}
+        });
+
+        // ================= FRONT-END API =================
+        // Python sẽ gọi hàm này và truyền dữ liệu vào đây!
+        window.receiveDataFromPython = function(v_bias, c_pf, inv_c2) {
+            document.getElementById('status-text').innerText = "Đang nhận dữ liệu...";
+            
+            document.getElementById('val-vbias').innerText = v_bias.toFixed(2) + " V";
+            document.getElementById('val-c').innerText = c_pf.toFixed(3) + " pF";
+            document.getElementById('val-invc2').innerText = inv_c2.toFixed(4);
+
+            cvChart.data.datasets[0].data.push({x: v_bias, y: c_pf});
+            msChart.data.datasets[0].data.push({x: v_bias, y: inv_c2});
+
+            cvChart.update();
+            msChart.update();
+        };
+
+        window.clearCharts = function() {
+            cvChart.data.datasets[0].data = [];
+            msChart.data.datasets[0].data = [];
+            cvChart.update();
+            msChart.update();
+            document.getElementById('status-text').innerText = "Đã xóa dữ liệu. Chờ chu trình mới...";
+            document.getElementById('ai-result-panel').style.display = 'none';
+        };
+
+        // ================= GEMINI API INTEGRATION =================
+        const apiKey = ""; // API Key được cấp tự động trong môi trường Canvas
+        
+        async function fetchWithRetry(url, options, retries = 5) {
+            let delay = 1000;
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) throw new Error(`Lỗi HTTP! Trạng thái: ${response.status}`);
+                    return await response.json();
+                } catch (e) {
+                    if (i === retries - 1) throw e;
+                    await new Promise(res => setTimeout(res, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        async function analyzeWithGemini() {
+            const dataPoints = cvChart.data.datasets[0].data;
+            if (dataPoints.length === 0) {
+                alert("Hãy thu thập dữ liệu quét C-V trước khi phân tích!");
+                return;
+            }
+
+            // Hiển thị trạng thái đang tải
+            document.getElementById('ai-loader').style.display = 'inline-block';
+            const btn = document.getElementById('btn-analyze');
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+
+            // Xây dựng dữ liệu dạng văn bản để gửi cho LLM
+            let dataSummary = "Dữ liệu đo lường C-V và Mott-Schottky:\n";
+            dataSummary += "V_bias(V) | C(pF) | 1/C²(pF⁻²)\n";
+            
+            // Lấy tối đa 20 điểm để tiết kiệm token (chọn các điểm dàn trải)
+            const msPoints = msChart.data.datasets[0].data;
+            const step = Math.max(1, Math.floor(dataPoints.length / 20));
+            for(let i = 0; i < dataPoints.length; i += step) {
+                const cv = dataPoints[i];
+                const ms = msPoints[i];
+                dataSummary += `${cv.x.toFixed(2)} | ${cv.y.toFixed(3)} | ${ms.y.toFixed(4)}\n`;
+            }
+
+            const prompt = `
+Tôi vừa thực hiện một phép quét đặc tuyến C-V (Capacitance-Voltage) trên một mẫu linh kiện bán dẫn (diode/tiếp giáp).
+Dưới đây là một số điểm dữ liệu trích xuất từ biểu đồ của tôi:
+${dataSummary}
+
+Dựa vào dữ liệu này:
+1. Bạn có nhận xét gì về xu hướng thay đổi của C theo V_bias? (Linh kiện đang ở chế độ phân cực nào?)
+2. Đường Mott-Schottky (1/C²) có tuyến tính không? Độ dốc của nó nói lên điều gì về loại pha tạp (N-type hay P-type) nếu ta giả định cấu trúc cơ bản?
+3. Trình bày ngắn gọn một báo cáo vật lý chuyên nghiệp khoảng 2-3 đoạn.
+`;
+
+            const systemPrompt = "Bạn là một giáo sư, chuyên gia về vật lý linh kiện bán dẫn. Bạn trả lời rất chuyên nghiệp, súc tích và sử dụng thuật ngữ chính xác trong tiếng Việt (như: vùng nghèo, phân cực nghịch, điện áp dải phẳng, độ dốc Mott-Schottky). Không cần giải thích lại những khái niệm quá cơ bản trừ khi liên quan trực tiếp đến dữ liệu.";
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                const response = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || "Không nhận được phản hồi từ AI.";
+                
+                // Hiển thị kết quả
+                const panel = document.getElementById('ai-result-panel');
+                const contentDiv = document.getElementById('ai-response-content');
+                panel.style.display = 'flex';
+                
+                // Format đơn giản text thành HTML (xử lý markdown đậm/nhạt cơ bản)
+                let formattedText = aiText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                formattedText = formattedText.replace(/\n/g, '<br>');
+                contentDiv.innerHTML = formattedText;
+
+                // Cuộn xuống cuối để xem kết quả
+                panel.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('ai-response-content').innerText = "Đã xảy ra lỗi khi gọi AI: " + error.message;
+                document.getElementById('ai-result-panel').style.display = 'flex';
+            } finally {
+                // Khôi phục nút
+                document.getElementById('ai-loader').style.display = 'none';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        }
+    </script>
+</body>
+</html>
